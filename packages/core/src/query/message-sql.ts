@@ -18,6 +18,9 @@ export const FULL_MSG_COLUMNS = `
   msg.content,
   msg.ts as timestamp,
   msg.type,
+  (SELECT ma.id FROM message_attachment ma
+   WHERE ma.message_id = msg.id AND ma.kind = 'image'
+   ORDER BY ma.id LIMIT 1) as imageAttachmentId,
   msg.reply_to_message_id as replyToMessageId,
   reply_msg.content as replyToContent,
   COALESCE(reply_m.group_nickname, reply_m.account_name, reply_m.platform_id) as replyToSenderName`
@@ -47,6 +50,7 @@ export interface FullMessageRow {
   content: string | null
   timestamp: number
   type: number
+  imageAttachmentId: number | null
   replyToMessageId: string | null
   replyToContent: string | null
   replyToSenderName: string | null
@@ -62,6 +66,7 @@ export interface MappedMessage {
   content: string
   timestamp: number
   type: number
+  imageAttachmentId: number | null
   replyToMessageId: string | null
   replyToContent: string | null
   replyToSenderName: string | null
@@ -88,6 +93,7 @@ export function mapMessageRow(row: FullMessageRow): MappedMessage {
     content: row.content != null ? String(row.content) : '',
     timestamp: Number(row.timestamp),
     type: Number(row.type),
+    imageAttachmentId: row.imageAttachmentId == null ? null : Number(row.imageAttachmentId),
     replyToMessageId: row.replyToMessageId || null,
     replyToContent: row.replyToContent || null,
     replyToSenderName: row.replyToSenderName || null,

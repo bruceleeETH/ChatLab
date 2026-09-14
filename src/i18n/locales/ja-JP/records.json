@@ -133,6 +133,7 @@
     }
   },
   "messageItem": {
+    "imageAttachment": "画像メッセージ",
     "viewContext": "コンテキストを表示",
     "replyTo": "返信",
     "expandMessyContent": "全文を表示",

@@ -16,6 +16,8 @@ const { t } = useI18n()
 const props = defineProps<{
   /** 消息数据 */
   message: ChatRecordMessage
+  /** Attachment URLs are scoped to the session that owns the message. */
+  sessionId?: string
   /** 是否为目标消息（需要高亮） */
   isTarget?: boolean
   /** 话题高亮颜色；普通消息定位仍使用默认主色。 */
@@ -90,6 +92,11 @@ const visibleMessageContent = computed(() => {
     return analysis.normalizedContent
   }
   return analysis.previewLines.join('\n')
+})
+
+const imageUrl = computed(() => {
+  if (!props.sessionId || !props.message.imageAttachmentId) return null
+  return `/_web/sessions/${encodeURIComponent(props.sessionId)}/attachments/${props.message.imageAttachmentId}`
 })
 
 watch(
@@ -228,9 +235,25 @@ function highlightContent(content: string): string {
               </p>
             </div>
             <p
+              v-if="visibleMessageContent"
               class="chat-record-message-content whitespace-pre-wrap break-all text-sm text-gray-700 dark:text-gray-200"
               v-html="highlightContent(visibleMessageContent)"
             />
+            <a
+              v-if="imageUrl"
+              :href="imageUrl"
+              target="_blank"
+              rel="noopener noreferrer"
+              class="mt-2 block"
+              @click.stop
+            >
+              <img
+                :src="imageUrl"
+                :alt="visibleMessageContent || t('records.messageItem.imageAttachment')"
+                class="max-h-[28rem] max-w-full rounded-xl object-contain"
+                loading="lazy"
+              />
+            </a>
             <ul
               v-if="contentAnalysis.linkUrls.length"
               class="chat-record-message-content mt-2 min-w-0 max-w-full list-disc space-y-1 pl-4 text-xs text-primary-600 dark:text-primary-400"

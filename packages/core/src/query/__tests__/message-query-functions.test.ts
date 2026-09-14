@@ -51,6 +51,15 @@ function createMessageDb(): Database.Database {
       reply_to_message_id TEXT,
       platform_message_id TEXT
     );
+    CREATE TABLE message_attachment (
+      id INTEGER PRIMARY KEY,
+      message_id INTEGER NOT NULL,
+      kind TEXT NOT NULL,
+      storage_path TEXT NOT NULL,
+      mime_type TEXT NOT NULL,
+      sha256 TEXT NOT NULL,
+      byte_size INTEGER NOT NULL
+    );
     INSERT INTO member (id, platform_id, account_name, group_nickname, aliases) VALUES
       (1, 'alice', 'Alice', 'A', '["Ally"]'),
       (2, 'bob', 'Bob', NULL, '[]'),
@@ -62,6 +71,9 @@ function createMessageDb(): Database.Database {
       (4, 99, 400, 0, 'hello system'),
       (5, 2, 500, 0, 'hi'),
       (6, 1, 600, 0, 'hello later');
+    INSERT INTO message_attachment
+      (id, message_id, kind, storage_path, mime_type, sha256, byte_size)
+      VALUES (7, 2, 'image', 'session/image.jpg', 'image/jpeg', 'abc', 3);
   `)
   return db
 }
@@ -177,6 +189,16 @@ describe('recent messages', () => {
         result.messages.map((message) => message.id),
         [4, 5, 6]
       )
+    } finally {
+      db.close()
+    }
+  })
+
+  it('returns the first managed image attachment id', async () => {
+    const db = createMessageDb()
+    try {
+      const result = await fetchMessageContext(createSqliteExecutor(db), 2, 0)
+      assert.equal(result[0]?.imageAttachmentId, 7)
     } finally {
       db.close()
     }

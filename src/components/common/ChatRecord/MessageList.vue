@@ -646,6 +646,7 @@ defineExpose({
           <MessageItem
             :data-message-id="messages[virtualItem.index]?.id"
             :message="messages[virtualItem.index]!"
+            :session-id="effectiveSessionId || undefined"
             :is-target="isTargetMessage(messages[virtualItem.index]!)"
             :topic-color-index="isTopicMessage(messages[virtualItem.index]!) ? highlightTopic?.colorIndex : undefined"
             :highlight-keywords="query.highlightKeywords"

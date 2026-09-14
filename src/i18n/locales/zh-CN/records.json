@@ -133,6 +133,7 @@
     }
   },
   "messageItem": {
+    "imageAttachment": "图片消息",
     "viewContext": "查看上下文",
     "replyTo": "回复",
     "expandMessyContent": "展开完整内容",

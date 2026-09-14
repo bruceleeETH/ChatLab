@@ -4,11 +4,11 @@
  * 所有 CREATE TABLE / INDEX 语句的单一事实来源。
  * 新建数据库时使用完整 Schema，现有数据库通过迁移脚本演进。
  *
- * 当前 Schema 版本：10
+ * 当前 Schema 版本：11
  */
 
 /** 当前 Schema 版本（最新迁移的版本号） */
-export const CURRENT_SCHEMA_VERSION = 10
+export const CURRENT_SCHEMA_VERSION = 11
 
 /**
  * Table DDL only (no indexes). Used by bulk-import workflows that defer
@@ -60,6 +60,18 @@ export const CHAT_DB_TABLES = `
     FOREIGN KEY(sender_id) REFERENCES member(id)
   );
 
+  CREATE TABLE IF NOT EXISTS message_attachment (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    message_id INTEGER NOT NULL,
+    kind TEXT NOT NULL,
+    storage_path TEXT NOT NULL,
+    mime_type TEXT NOT NULL,
+    sha256 TEXT NOT NULL,
+    byte_size INTEGER NOT NULL,
+    FOREIGN KEY(message_id) REFERENCES message(id) ON DELETE CASCADE,
+    UNIQUE(message_id, sha256)
+  );
+
   CREATE TABLE IF NOT EXISTS segment (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     start_ts INTEGER NOT NULL,
@@ -87,6 +99,7 @@ export const CHAT_DB_INDEXES = `
   CREATE INDEX IF NOT EXISTS idx_message_type_ts ON message(type, ts);
   CREATE INDEX IF NOT EXISTS idx_message_reply_to ON message(reply_to_message_id);
   CREATE INDEX IF NOT EXISTS idx_message_platform_id ON message(platform_message_id);
+  CREATE INDEX IF NOT EXISTS idx_message_attachment_message ON message_attachment(message_id);
   CREATE INDEX IF NOT EXISTS idx_member_name_history_member_id ON member_name_history(member_id);
   CREATE INDEX IF NOT EXISTS idx_segment_time ON segment(start_ts, end_ts);
   CREATE INDEX IF NOT EXISTS idx_context_segment ON message_context(segment_id);

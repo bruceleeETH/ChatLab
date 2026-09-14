@@ -133,6 +133,7 @@
     }
   },
   "messageItem": {
+    "imageAttachment": "Image message",
     "viewContext": "View Context",
     "replyTo": "Reply to",
     "expandMessyContent": "Show full content",

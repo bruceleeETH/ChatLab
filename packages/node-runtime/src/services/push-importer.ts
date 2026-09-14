@@ -6,6 +6,7 @@
  */
 
 import * as fs from 'fs'
+import * as path from 'node:path'
 import { DataDirCompatibilityError } from '../data-dir-compat'
 import {
   CHAT_DB_SCHEMA,
@@ -25,6 +26,12 @@ import {
 } from '../import/message-deduplicator'
 import { appLogger } from '../logging/app-logger'
 import { isValidImportSessionId } from '../import/session-id'
+import {
+  cleanupPreparedLocalMedia,
+  prepareLocalMediaImports,
+  type LocalImageImportInstruction,
+  type PreparedLocalMediaAttachment,
+} from './local-media-import'
 
 const SYSTEM_SENDER_ID = 'SYSTEM'
 const SYSTEM_MEMBER_NAME = '系统消息'
@@ -38,6 +45,7 @@ export interface PushImportMessage {
   content?: string | null
   platformMessageId?: string
   replyToMessageId?: string
+  attachments?: LocalImageImportInstruction[]
 }
 
 export interface PushImportMember {
@@ -96,11 +104,15 @@ export type PushImportAnalysisOutcome =
 
 export interface PushImportExecutionDeps {
   getDbPath(sessionId: string): string
+  getMediaDir(): string
   openDatabase(sessionId: string, options: { readonly?: boolean; create?: boolean }): DatabaseAdapter
   deleteDatabase(sessionId: string): void
 }
 
-export type PushImportAnalysisExecutionDeps = Pick<PushImportExecutionDeps, 'getDbPath' | 'openDatabase'>
+export type PushImportAnalysisExecutionDeps = Pick<
+  PushImportExecutionDeps,
+  'getDbPath' | 'getMediaDir' | 'openDatabase'
+>
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
@@ -191,6 +203,16 @@ function validatePayload(payload: PushImportPayload, isNew: boolean): string | n
       return `messages[${i}].platformMessageId must be a string`
     if (msg.replyToMessageId !== undefined && typeof msg.replyToMessageId !== 'string')
       return `messages[${i}].replyToMessageId must be a string`
+    if (msg.attachments !== undefined) {
+      if (!Array.isArray(msg.attachments)) return `messages[${i}].attachments must be an array`
+      for (let j = 0; j < msg.attachments.length; j++) {
+        const attachment = msg.attachments[j]
+        if (!isRecord(attachment)) return `messages[${i}].attachments[${j}] must be an object`
+        if (attachment.kind !== 'image') return `messages[${i}].attachments[${j}].kind must be 'image'`
+        if (typeof attachment.sourcePath !== 'string' || attachment.sourcePath.length === 0)
+          return `messages[${i}].attachments[${j}].sourcePath must be a non-empty string`
+      }
+    }
   }
 
   return null
@@ -424,6 +446,32 @@ function fullImport(
   return { writtenCount: stats.messageCount, duplicateCount }
 }
 
+function writeAttachments(db: DatabaseAdapter, attachments: readonly PreparedLocalMediaAttachment[]): number {
+  if (attachments.length === 0) return 0
+  const getMessage = db.prepare('SELECT id FROM message WHERE platform_message_id = ? ORDER BY id LIMIT 1')
+  const insert = db.prepare(
+    `INSERT OR IGNORE INTO message_attachment
+      (message_id, kind, storage_path, mime_type, sha256, byte_size)
+     VALUES (?, ?, ?, ?, ?, ?)`
+  )
+  let written = 0
+  db.transaction(() => {
+    for (const attachment of attachments) {
+      const message = getMessage.get(attachment.platformMessageId) as { id: number } | undefined
+      if (!message) throw new Error(`Attachment message not found: ${attachment.platformMessageId}`)
+      written += insert.run(
+        message.id,
+        attachment.kind,
+        attachment.storagePath,
+        attachment.mimeType,
+        attachment.sha256,
+        attachment.byteSize
+      ).changes
+    }
+  })
+  return written
+}
+
 interface IncrementalImportStats {
   writtenCount: number
   duplicateCount: number
@@ -561,6 +609,7 @@ export async function executeAnalyzePushImport(
   }
 
   try {
+    await prepareLocalMediaImports(deps.getMediaDir(), sessionId, payload.messages!, { copy: false })
     let analysis: { newMessageCount: number; duplicateCount: number }
 
     if (isNew) {
@@ -601,6 +650,7 @@ export async function pushImport(
       const outcome = await executePushImportUnlocked(
         {
           getDbPath: (id) => dbManager.getDbPath(id),
+          getMediaDir: () => path.join(dbManager.getUserDataDir(), 'media'),
           openDatabase: (id, options) => dbManager.openRawSessionDatabase(id, options),
           deleteDatabase: (id) => {
             dbManager.deleteSessionDatabaseFiles(id)
@@ -652,11 +702,14 @@ export async function executePushImportUnlocked(
     return { ok: false, reason: 'invalid_payload', message: validationError }
   }
 
+  let preparedMedia: Awaited<ReturnType<typeof prepareLocalMediaImports>> | null = null
   try {
+    preparedMedia = await prepareLocalMediaImports(deps.getMediaDir(), sessionId, payload.messages!, { copy: true })
     if (isNew) {
       const db = deps.openDatabase(sessionId, { create: true })
       try {
         const { writtenCount, duplicateCount } = fullImport(db, payload.meta!, payload.members ?? [], payload.messages!)
+        writeAttachments(db, preparedMedia.attachments)
         const session = queryStats(db)
         // Every non-system member in a new database was inserted by this request,
         // including senders that were omitted from the submitted members array.
@@ -681,6 +734,7 @@ export async function executePushImportUnlocked(
     const db = deps.openDatabase(sessionId, { readonly: false })
     try {
       const { writtenCount, duplicateCount, metaUpdated, membersAdded, membersUpdated } = incrementalImport(db, payload)
+      writeAttachments(db, preparedMedia.attachments)
       const session = queryStats(db)
       const outcome: PushImportOutcome = {
         ok: true,
@@ -698,6 +752,7 @@ export async function executePushImportUnlocked(
       db.close()
     }
   } catch (err: unknown) {
+    if (preparedMedia) await cleanupPreparedLocalMedia(preparedMedia.createdPaths)
     // Let DataDirCompatibilityError propagate so the Fastify error handler
     // maps it to 409 DATA_DIR_INCOMPATIBLE (consistent with other routes).
     if (err instanceof DataDirCompatibilityError) throw err

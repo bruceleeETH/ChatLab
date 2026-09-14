@@ -389,5 +389,25 @@ export function getChatDbMigrations(): CoreMigration[] {
         if (hasTable(db, 'segment')) addColumnIfMissing(db, 'segment', 'summary_message_count', 'INTEGER')
       },
     },
+    {
+      version: 11,
+      description: 'Add managed message attachments',
+      up: (db: DatabaseAdapter) => {
+        db.exec(`
+          CREATE TABLE IF NOT EXISTS message_attachment (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            message_id INTEGER NOT NULL,
+            kind TEXT NOT NULL,
+            storage_path TEXT NOT NULL,
+            mime_type TEXT NOT NULL,
+            sha256 TEXT NOT NULL,
+            byte_size INTEGER NOT NULL,
+            FOREIGN KEY(message_id) REFERENCES message(id) ON DELETE CASCADE,
+            UNIQUE(message_id, sha256)
+          );
+          CREATE INDEX IF NOT EXISTS idx_message_attachment_message ON message_attachment(message_id);
+        `)
+      },
+    },
   ]
 }

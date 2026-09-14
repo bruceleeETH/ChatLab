@@ -1,4 +1,7 @@
 import type { FastifyInstance } from 'fastify'
+import { createReadStream } from 'node:fs'
+import * as fs from 'node:fs'
+import * as path from 'node:path'
 import type { AiRouteContext } from '../../context/ai'
 import type { RuntimeRouteContext } from '../../context/runtime'
 import type { ServiceRouteContext } from '../../context/services'
@@ -23,6 +26,35 @@ export function registerSessionRoutes(server: FastifyInstance, ctx: SessionRoute
     preferencesInstance ??= ctx.preferencesManager ?? new PreferencesManager(ctx.pathProvider.getSystemDir())
     return preferencesInstance
   }
+
+  server.get<{ Params: { id: string; attachmentId: string } }>(
+    '/_web/sessions/:id/attachments/:attachmentId',
+    async (request, reply) => {
+      const attachmentId = Number(request.params.attachmentId)
+      if (!Number.isSafeInteger(attachmentId) || attachmentId <= 0) {
+        return reply.code(404).send({ success: false, error: 'Attachment not found' })
+      }
+
+      const db = adapter.ensureReadonly(request.params.id)
+      const attachment = db
+        .prepare('SELECT storage_path, mime_type FROM message_attachment WHERE id = ?')
+        .get(attachmentId) as { storage_path: string; mime_type: string } | undefined
+      if (!attachment) return reply.code(404).send({ success: false, error: 'Attachment not found' })
+
+      const mediaRoot = path.resolve(ctx.pathProvider.getUserDataDir(), 'media')
+      const filePath = path.resolve(mediaRoot, attachment.storage_path)
+      if (
+        !filePath.startsWith(`${mediaRoot}${path.sep}`) ||
+        !fs.existsSync(filePath) ||
+        !fs.statSync(filePath).isFile()
+      ) {
+        return reply.code(404).send({ success: false, error: 'Attachment file not found' })
+      }
+
+      reply.header('Cache-Control', 'private, max-age=31536000, immutable')
+      return reply.type(attachment.mime_type).send(createReadStream(filePath))
+    }
+  )
 
   server.get('/_web/sessions', async () => {
     const aiChatCounts = ctx.aiChatManager?.getAIChatCountsBySession()
