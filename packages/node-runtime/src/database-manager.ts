@@ -276,6 +276,9 @@ export class DatabaseManager {
       }
     }
 
+    const mediaPath = path.join(this.pathProvider.getUserDataDir(), 'media', sessionId)
+    fs.rmSync(mediaPath, { recursive: true, force: true })
+
     // Derived data is removed only after the primary database is gone. If deleting the main file fails, callers get
     // the original filesystem error and can retry without losing paid topic snapshots or other cached results.
     deleteSessionChatTopics(this.pathProvider.getUserDataDir(), sessionId, { nativeBinding: this.nativeBinding })

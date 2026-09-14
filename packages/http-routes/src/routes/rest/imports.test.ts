@@ -109,3 +109,28 @@ test('rejects reuse of an Idempotency-Key with a different body', async (t) => {
   assert.equal(fs.existsSync(path.join(root, 'databases', 'idempotency-conflict.db')), true)
   assert.equal(fs.existsSync(path.join(root, 'idempotency-conflict.db')), false)
 })
+
+test('analyzes X-Dry-Run without creating a session database', async (t) => {
+  const root = makeTempDir()
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }))
+  const app = Fastify()
+  registerImportRoutes(app, createContext(root))
+  await app.ready()
+  t.after(() => app.close())
+
+  const response = await app.inject({
+    method: 'POST',
+    url: '/api/v1/imports/dry-run-session',
+    headers: {
+      'content-type': 'application/json',
+      'idempotency-key': 'dry-run-batch',
+      'x-dry-run': 'true',
+    },
+    payload: createPayload('validate-only'),
+  })
+
+  assert.equal(response.statusCode, 200)
+  assert.equal(response.json().data.dryRun, true)
+  assert.equal(response.json().data.analysis.newMessageCount, 1)
+  assert.equal(fs.existsSync(path.join(root, 'databases', 'dry-run-session.db')), false)
+})

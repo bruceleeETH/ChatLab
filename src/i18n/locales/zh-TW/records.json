@@ -133,6 +133,7 @@
     }
   },
   "messageItem": {
+    "imageAttachment": "圖片訊息",
     "viewContext": "檢視上下文",
     "replyTo": "回覆",
     "expandMessyContent": "展開完整內容",

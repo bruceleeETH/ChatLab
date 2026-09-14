@@ -19,6 +19,7 @@ function getDbPath(sessionId: string): string {
 function createPushImportExecutionDeps(): PushImportExecutionDeps {
   return {
     getDbPath,
+    getMediaDir: () => path.join(getDbDir(), '..', 'media'),
     openDatabase(id, options) {
       const dbPath = getDbPath(id)
       if (!options.create && !fs.existsSync(dbPath)) throw new Error(`Session database not found: ${id}`)

@@ -153,7 +153,7 @@ export type {
 export { MergeSessionCache } from './merge-cache'
 
 // Push import (POST /api/v1/imports/:sessionId)
-export { executePushImportUnlocked, pushImport } from './push-importer'
+export { executeAnalyzePushImport, executePushImportUnlocked, pushImport } from './push-importer'
 export type {
   PushImportAnalysisOutcome,
   PushImportAnalysisResult,

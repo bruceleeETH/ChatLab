@@ -39,12 +39,101 @@ function analyzePushImport(manager: DatabaseManager, sessionId: string, payload:
   return executeAnalyzePushImport(
     {
       getDbPath: (id) => manager.getDbPath(id),
+      getMediaDir: () => path.join(manager.getUserDataDir(), 'media'),
       openDatabase: (id, options) => manager.openRawSessionDatabase(id, options),
     },
     sessionId,
     payload
   )
 }
+
+function writePngFixture(rootDir: string, name = 'fixture.png'): string {
+  const filePath = path.join(rootDir, name)
+  fs.writeFileSync(
+    filePath,
+    Buffer.from(
+      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=',
+      'base64'
+    )
+  )
+  return filePath
+}
+
+test('validates and ingests absolute local image paths into managed session media', async (t) => {
+  const tempDir = makeTempDir()
+  t.after(() => fs.rmSync(tempDir, { recursive: true, force: true }))
+
+  const manager = createDatabaseManager(tempDir)
+  const sourcePath = writePngFixture(tempDir)
+  const payload: PushImportPayload = {
+    chatlab: { version: '0.0.2', exportedAt: 1780330900 },
+    meta: { name: 'Image Import', platform: 'wechat', type: 'group' },
+    messages: [
+      {
+        platformMessageId: 'image-1',
+        sender: 'wxid_alice',
+        timestamp: 1780330832,
+        type: 1,
+        content: '[图片]',
+        attachments: [{ kind: 'image', sourcePath }],
+      },
+    ],
+  }
+
+  const analysis = await analyzePushImport(manager, 'image-import', payload)
+  assert.equal(analysis.ok, true)
+  assert.equal(fs.existsSync(path.join(tempDir, 'media')), false)
+
+  const outcome = await pushImport(manager, 'image-import', payload)
+  assert.equal(outcome.ok, true)
+
+  const db = manager.openRawSessionDatabase('image-import', { readonly: true })
+  try {
+    const attachment = db.prepare('SELECT storage_path, mime_type, byte_size FROM message_attachment').get() as {
+      storage_path: string
+      mime_type: string
+      byte_size: number
+    }
+    assert.equal(attachment.mime_type, 'image/png')
+    assert.equal(attachment.byte_size, fs.statSync(sourcePath).size)
+    assert.equal(path.isAbsolute(attachment.storage_path), false)
+    assert.equal(fs.existsSync(path.join(tempDir, 'media', attachment.storage_path)), true)
+  } finally {
+    db.close()
+  }
+
+  assert.equal(manager.deleteSessionDatabaseFiles('image-import'), true)
+  assert.equal(fs.existsSync(path.join(tempDir, 'media', 'image-import')), false)
+})
+
+test('rejects relative and non-image attachment sources before creating a session', async (t) => {
+  const tempDir = makeTempDir()
+  t.after(() => fs.rmSync(tempDir, { recursive: true, force: true }))
+  const manager = createDatabaseManager(tempDir)
+  const textPath = path.join(tempDir, 'not-an-image.txt')
+  fs.writeFileSync(textPath, 'hello')
+
+  for (const [sessionId, sourcePath] of [
+    ['relative-image', 'relative.png'],
+    ['invalid-image', textPath],
+  ] as const) {
+    const outcome = await pushImport(manager, sessionId, {
+      chatlab: { version: '0.0.2', exportedAt: 1780330900 },
+      meta: { name: 'Invalid Image', platform: 'wechat', type: 'private' },
+      messages: [
+        {
+          platformMessageId: 'image-1',
+          sender: 'wxid_alice',
+          timestamp: 1780330832,
+          type: 1,
+          attachments: [{ kind: 'image', sourcePath }],
+        },
+      ],
+    })
+    assert.equal(outcome.ok, false)
+    assert.equal(fs.existsSync(manager.getDbPath(sessionId)), false)
+  }
+})
 
 test('analyzes a new push payload with the same optional-account and member semantics as the writer', async (t) => {
   const tempDir = makeTempDir()

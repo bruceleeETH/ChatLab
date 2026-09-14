@@ -7,8 +7,9 @@
  */
 
 import type { FastifyInstance } from 'fastify'
+import * as path from 'node:path'
 import type { RuntimeRouteContext } from '../../context/runtime'
-import { appLogger, pushImport } from '@openchatlab/node-runtime'
+import { appLogger, executeAnalyzePushImport, pushImport } from '@openchatlab/node-runtime'
 import type { PushImportPayload } from '@openchatlab/node-runtime'
 import { createJsonPushImportHandler } from '../../import/json-push-handler'
 
@@ -17,6 +18,17 @@ type ImportRouteContext = Pick<RuntimeRouteContext, 'dbManager'>
 export function registerImportRoutes(server: FastifyInstance, ctx: ImportRouteContext): void {
   const handleJsonPushImport = createJsonPushImportHandler({
     execute: (sessionId, payload) => pushImport(ctx.dbManager, sessionId, payload),
+    analyze: (sessionId, payload) =>
+      executeAnalyzePushImport(
+        {
+          getDbPath: (id) => ctx.dbManager.getDbPath(id),
+          getMediaDir: () => path.join(ctx.dbManager.getUserDataDir(), 'media'),
+          openDatabase: (id, options) => ctx.dbManager.openRawSessionDatabase(id, options),
+        },
+        sessionId,
+        payload
+      ),
+    includeDryRunInIdempotencyKey: true,
     onError: (error) => appLogger.error('http-import', 'Push import request failed', error),
   })
 
